@@ -1,9 +1,10 @@
-import io
+import itertools as it
+from contextlib import contextmanager
 from dataclasses import dataclass
 from fractions import Fraction
-from itertools import groupby
+from io import BytesIO
 from operator import attrgetter
-from typing import Iterable, Iterator, List, Union
+from typing import BinaryIO, Iterable, Iterator, List, Tuple, Union
 
 import av
 
@@ -29,7 +30,7 @@ def chunk_packets(packets: Iterable[av.Packet], size: int) -> Iterator[List[av.P
     chunk = []
     chunk_bytes = 0
     # group packets by into consecutive keyframes and inbetweens
-    for is_keyframe, group in groupby(packets, key=attrgetter("is_keyframe")):
+    for is_keyframe, group in it.groupby(packets, key=attrgetter("is_keyframe")):
         # add all the group packets into the current chunk
         for packet in group:
             # skip the "flushing" packets that `demux` generates
@@ -68,7 +69,7 @@ def split_stream(
     with av.open(file) as in_container:
         in_stream = in_container.streams[stream_index]
         for chunk in chunk_packets(in_container.demux(in_stream), size):
-            output_file = io.BytesIO()
+            output_file = BytesIO()
             with av.open(output_file, "w", format=format) as out_container:
                 out_stream = out_container.add_stream(template=in_stream)
                 for packet in chunk:
@@ -80,9 +81,38 @@ def split_stream(
             yield StreamSegment(min(time_breaks), max(time_breaks), output_file.read())
 
 
+@contextmanager
+def resetting_offset(file: Union[str, BinaryIO]) -> Iterator[None]:
+    """Context manager for resetting the offset of a file to its initial value."""
+    if isinstance(file, str):
+        yield
+    else:
+        offset = file.tell()
+        try:
+            yield
+        finally:
+            file.seek(offset)
+
+
+def get_stream_size_duration(
+    file: Union[str, BinaryIO], stream_index: int = 0
+) -> Tuple[int, float]:
+    """Get the size (in bytes) and duration (in seconds) of a video file stream.
+
+    :param file: Video file to read
+    :param stream_index: Index of the stream channel to read
+    :return: (size, duration)
+    """
+    with resetting_offset(file), av.open(file) as container:
+        size = sum(packet.buffer_size for packet in container.demux(stream_index))
+        # container.duration is in microsec
+        duration = container.duration / 1e6
+        return size, duration
+
+
 def merge_files(
-    src_files: Iterable[Union[str, io.IOBase]],
-    dest_file: Union[str, io.IOBase],
+    src_files: Iterable[Union[str, BinaryIO]],
+    dest_file: Union[str, BinaryIO],
     stream_index: int = 0,
     format: str = "mp4",
 ) -> None:
