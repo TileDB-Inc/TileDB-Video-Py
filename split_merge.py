@@ -4,9 +4,13 @@ from dataclasses import dataclass
 from fractions import Fraction
 from io import BytesIO
 from operator import attrgetter
-from typing import BinaryIO, Iterable, Iterator, List, Tuple, Union
+from typing import BinaryIO, Iterable, Iterator, List, Mapping, Optional, Tuple, Union
 
 import av
+
+File = Union[str, BinaryIO]
+TimeOffset = Optional[float]
+FileTimeOffset = Union[TimeOffset, Mapping[File, TimeOffset]]
 
 
 @dataclass(frozen=True)
@@ -52,7 +56,7 @@ def chunk_packets(packets: Iterable[av.Packet], size: int) -> Iterator[List[av.P
 
 
 def split_stream(
-    file: Union[str, BinaryIO],
+    file: File,
     size: int,
     stream_index: int = 0,
     format: str = "mp4",
@@ -82,7 +86,7 @@ def split_stream(
 
 
 @contextmanager
-def resetting_offset(file: Union[str, BinaryIO]) -> Iterator[None]:
+def resetting_offset(file: File) -> Iterator[None]:
     """Context manager for resetting the offset of a file to its initial value."""
     if isinstance(file, str):
         yield
@@ -94,9 +98,7 @@ def resetting_offset(file: Union[str, BinaryIO]) -> Iterator[None]:
             file.seek(offset)
 
 
-def get_stream_size_duration(
-    file: Union[str, BinaryIO], stream_index: int = 0
-) -> Tuple[int, float]:
+def get_stream_size_duration(file: File, stream_index: int = 0) -> Tuple[int, float]:
     """Get the size (in bytes) and duration (in seconds) of a video file stream.
 
     :param file: Video file to read
@@ -110,11 +112,50 @@ def get_stream_size_duration(
         return size, duration
 
 
+def iter_packets(
+    file: File,
+    stream_index: int = 0,
+    start_time: TimeOffset = None,
+    end_time: TimeOffset = None,
+) -> Iterator[av.Packet]:
+    """Iterate over packets of a video file stream.
+
+    :param file: Video file to read
+    :param stream_index: Index of the stream channel to read
+    :param start_time: Time offset in seconds of the first frame
+    :param end_time: Time offset in seconds of the last frame
+    :return: Iterator of packets
+    """
+    with av.open(file) as container:
+        stream = container.streams[stream_index]
+
+        if start_time is not None:
+            file_end_time = (container.start_time + container.duration) / 1e6
+            # if start_time is greater than the end of the file, don't yield any packets
+            if start_time >= file_end_time:
+                return
+            # seek to the keyframe nearest to start_time
+            container.seek(offset=int(start_time / stream.time_base), stream=stream)
+
+        packets: Iterator[av.Packet] = (
+            p for p in container.demux() if p.dts is not None
+        )
+
+        if end_time is not None:
+            # discard packets after end_time
+            end_dts = int(end_time / stream.time_base)
+            packets = it.takewhile(lambda p: p.dts <= end_dts, packets)
+
+        yield from packets
+
+
 def merge_files(
-    src_files: Iterable[Union[str, BinaryIO]],
-    dest_file: Union[str, BinaryIO],
+    src_files: Iterable[File],
+    dest_file: File,
     stream_index: int = 0,
     format: str = "mp4",
+    start_time: FileTimeOffset = None,
+    end_time: FileTimeOffset = None,
 ) -> None:
     """
     Merge a sequence of video files split by `split_stream`.
@@ -123,20 +164,41 @@ def merge_files(
     :param dest_file: File path or file-like object to write the `src_files`
     :param stream_index: Index of the stream channel to read
     :param format: Format of the merged file.
+    :param start_time: Start time offset (in seconds). It can be a mapping with files
+        as keys and offsets as values, or a single offset for all files.
+    :param end_time: End time offset (in seconds). It can be a mapping with files
+        as keys and offsets as values, or a single offset for all files.
     """
-    out_stream = None
+    iter_src_files = iter(src_files)
     with av.open(dest_file, "w", format=format) as out_container:
-        for src_file in src_files:
-            with av.open(src_file) as in_container:
-                in_stream = in_container.streams[stream_index]
-                if out_stream is None:
-                    out_stream = out_container.add_stream(template=in_stream)
+        first_src_file = next(iter_src_files)
+        with resetting_offset(first_src_file), av.open(first_src_file) as in_container:
+            in_stream = in_container.streams[stream_index]
+            out_stream = out_container.add_stream(template=in_stream)
 
-                for packet in in_container.demux(in_stream):
-                    # We need to skip the "flushing" packets that `demux` generates.
-                    if packet.dts is not None:
-                        packet.stream = out_stream
-                        out_container.mux_one(packet)
+        def get_time(fto: FileTimeOffset, f: File) -> TimeOffset:
+            return fto.get(f) if isinstance(fto, Mapping) else fto
+
+        packets = it.chain.from_iterable(
+            iter_packets(
+                src_file,
+                stream_index,
+                get_time(start_time, src_file),
+                get_time(end_time, src_file),
+            )
+            for src_file in it.chain((first_src_file,), iter_src_files)
+        )
+        try:
+            first_packet = next(packets)
+        except StopIteration:
+            return
+        first_dts = first_packet.dts
+        for packet in it.chain((first_packet,), packets):
+            # rewrite pts/dts of each packet so that first one in the file starts at zero
+            packet.dts -= first_dts
+            packet.pts -= first_dts
+            packet.stream = out_stream
+            out_container.mux_one(packet)
 
 
 if __name__ == "__main__":
@@ -154,4 +216,4 @@ if __name__ == "__main__":
             f.write(segment.data)
         segment_files.append(segment_file)
 
-    merge_files(segment_files, dest_file=f"{file}.merged")
+    merge_files(segment_files, dest_file=f"{file}.merged", start_time=21, end_time=25)
