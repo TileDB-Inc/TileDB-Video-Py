@@ -41,7 +41,6 @@ def from_file(
     attrs = [
         tiledb.Attr(name="data", dtype=np.bytes_, filters=[tiledb.NoOpFilter()]),
         tiledb.Attr(name="size", dtype=np.uint32),
-        tiledb.Attr(name="duration", dtype=np.float64),
     ]
     schema = tiledb.ArraySchema(domain=domain, sparse=True, attrs=attrs)
     tiledb.Array.create(uri, schema)
@@ -53,7 +52,7 @@ def from_file(
     with tiledb.open(uri, mode="w") as a:
         # segment input file and write each segment to tiledb
         for start, end, data in split_file(file, split_size, stream_index, fmt):
-            a[start, end] = {"data": data, "size": len(data), "duration": end - start}
+            a[start, end] = {"data": data, "size": len(data)}
 
 
 def to_file(
@@ -121,6 +120,6 @@ if __name__ == "__main__":
 
     with tiledb.open(uri) as a:
         print(a.schema)
-        print(a.query(attrs=["duration", "size"]).df[:])
+        print(a.query(attrs=["size"]).df[:])
 
     to_file(uri, f"{file}.merged", start_time=21, end_time=25)
