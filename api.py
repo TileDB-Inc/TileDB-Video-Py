@@ -1,15 +1,22 @@
 from datetime import timedelta
-from typing import BinaryIO, Union
+from io import BytesIO
+from typing import Iterator
 
 import numpy as np
 import tiledb
 
-from split_merge import get_stream_size_duration, split_stream
+from split_merge import (
+    File,
+    TimeOffset,
+    get_stream_size_duration,
+    merge_files,
+    split_stream,
+)
 
 
 def from_file(
     uri: str,
-    file: Union[str, BinaryIO],
+    file: File,
     *,
     stream_index: int = 0,
     format: str = "mp4",
@@ -43,14 +50,65 @@ def from_file(
     size, duration = get_stream_size_duration(file, stream_index)
     split_size = int(size / duration * split_interval.total_seconds())
 
-    # segment input file and write each segment to tiledb
     with tiledb.open(uri, mode="w") as a:
+        # segment input file and write each segment to tiledb
         for segment in split_stream(file, split_size, stream_index, format):
             a[segment.start_time, segment.end_time] = {
                 "data": segment.data,
                 "size": len(segment.data),
                 "duration": segment.end_time - segment.start_time,
             }
+
+
+def to_file(
+    uri: str,
+    file: File,
+    format: str = "mp4",
+    start_time: TimeOffset = None,
+    end_time: TimeOffset = None,
+) -> None:
+    """Read a video from a TileDB array into a file.
+
+    :param uri: URI for new TileDB array
+    :param file: Output video file
+    :param format: Format of the output file
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
+    """
+    src_files = list(_fetch_segment_files(uri, start_time, end_time))
+    if src_files:
+        merge_files(
+            src_files=src_files,
+            dest_file=file,
+            format=format,
+            start_time={src_files[0]: start_time},
+            end_time={src_files[-1]: end_time},
+        )
+
+
+def _fetch_segment_files(
+    uri: str, start_time: TimeOffset = None, end_time: TimeOffset = None
+) -> Iterator[BytesIO]:
+    """Fetch the minimum sequence of segment files that cover the given time range.
+
+    # A segment s is overlapping if s.start_time <= end_time AND s.end_time >= start_time
+    #
+    # |----A---|-------B------|-----C---|------D----|----E----|-----F-----|
+    #              x                                  y
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    #              >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    #
+    # Overlapping segments: B, C, D, E
+
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
+    :return: Iterator of BytesIO buffers
+    """
+    # Get the segments overlapping with the (start_time, end_time) interval
+    with tiledb.open(uri) as a:
+        query = a.query(dims=[], attrs=["data"])
+        chunks = query[slice(None, end_time), slice(start_time, None)]["data"]
+    return map(BytesIO, chunks)
 
 
 if __name__ == "__main__":
@@ -68,3 +126,5 @@ if __name__ == "__main__":
     with tiledb.open(uri) as a:
         print(a.schema)
         print(a.query(attrs=["duration", "size"]).df[:])
+
+    to_file(uri, f"{file}.merged", start_time=21, end_time=25)
