@@ -1,7 +1,5 @@
 import itertools as it
 from contextlib import contextmanager
-from dataclasses import dataclass
-from fractions import Fraction
 from io import BytesIO
 from operator import attrgetter
 from typing import BinaryIO, Iterable, Iterator, List, Mapping, Optional, Tuple, Union
@@ -11,13 +9,6 @@ import av
 File = Union[str, BinaryIO]
 TimeOffset = Optional[float]
 FileTimeOffset = Union[TimeOffset, Mapping[File, TimeOffset]]
-
-
-@dataclass(frozen=True)
-class StreamSegment:
-    start_time: Fraction
-    end_time: Fraction
-    data: bytes
 
 
 def chunk_packets(packets: Iterable[av.Packet], size: int) -> Iterator[List[av.Packet]]:
@@ -55,34 +46,34 @@ def chunk_packets(packets: Iterable[av.Packet], size: int) -> Iterator[List[av.P
         yield chunk
 
 
-def split_stream(
+def split_file(
     file: File,
     size: int,
     stream_index: int = 0,
-    format: str = "mp4",
-) -> Iterator[StreamSegment]:
+    fmt: str = "mp4",
+) -> Iterator[Tuple[float, float, bytes]]:
     """Split a video stream into smaller files.
 
     :param file: Video file to split
     :param size: Minimum size in bytes of each split file (with the possible exception of
         the last chunk)
     :param stream_index: Index of the stream channel to split
-    :param format: Format of the split files
-    :return: Iterator of `StreamSegment` instances
+    :param fmt: Format of the split files
+    :return: Iterator of (start_time, end_time, bytes) tuples for each split file
     """
     with av.open(file) as in_container:
         in_stream = in_container.streams[stream_index]
         for chunk in chunk_packets(in_container.demux(in_stream), size):
             output_file = BytesIO()
-            with av.open(output_file, "w", format=format) as out_container:
+            with av.open(output_file, "w", format=fmt) as out_container:
                 out_stream = out_container.add_stream(template=in_stream)
                 for packet in chunk:
                     # assign the packet to the new stream
                     packet.stream = out_stream
                     out_container.mux_one(packet)
             output_file.seek(0)
-            time_breaks = [p.pts * p.time_base for p in chunk]
-            yield StreamSegment(min(time_breaks), max(time_breaks), output_file.read())
+            time_breaks = [float(p.pts * p.time_base) for p in chunk]
+            yield min(time_breaks), max(time_breaks), output_file.read()
 
 
 @contextmanager
@@ -153,24 +144,24 @@ def merge_files(
     src_files: Iterable[File],
     dest_file: File,
     stream_index: int = 0,
-    format: str = "mp4",
+    fmt: str = "mp4",
     start_time: FileTimeOffset = None,
     end_time: FileTimeOffset = None,
 ) -> None:
     """
-    Merge a sequence of video files split by `split_stream`.
+    Merge a sequence of video files split by `split_file`.
 
     :param src_files: File paths or file-like objects to merge
     :param dest_file: File path or file-like object to write the `src_files`
     :param stream_index: Index of the stream channel to read
-    :param format: Format of the merged file.
+    :param fmt: Format of the merged file
     :param start_time: Start time offset (in seconds). It can be a mapping with files
-        as keys and offsets as values, or a single offset for all files.
+        as keys and offsets as values, or a single offset for all files
     :param end_time: End time offset (in seconds). It can be a mapping with files
-        as keys and offsets as values, or a single offset for all files.
+        as keys and offsets as values, or a single offset for all files
     """
     iter_src_files = iter(src_files)
-    with av.open(dest_file, "w", format=format) as out_container:
+    with av.open(dest_file, "w", format=fmt) as out_container:
         first_src_file = next(iter_src_files)
         with resetting_offset(first_src_file), av.open(first_src_file) as in_container:
             in_stream = in_container.streams[stream_index]
@@ -205,15 +196,12 @@ if __name__ == "__main__":
     import sys
 
     file = sys.argv[1]
-    segment_files = []
-    for i, segment in enumerate(split_stream(file, size=1024 ** 2)):
-        print(
-            f"Segment {i}: from {segment.start_time} to {segment.end_time} seconds "
-            f"({len(segment.data)} bytes)"
-        )
-        segment_file = f"{file}-{i}"
-        with open(segment_file, "wb") as f:
-            f.write(segment.data)
-        segment_files.append(segment_file)
+    segment_paths = []
+    for i, (start, end, data) in enumerate(split_file(file, size=1024 ** 2)):
+        print(f"Segment {i}: from {start} to {end} seconds " f"({len(data)} bytes)")
+        segment_path = f"{file}-{i}"
+        with open(segment_path, "wb") as f:
+            f.write(data)
+        segment_paths.append(segment_path)
 
-    merge_files(segment_files, dest_file=f"{file}.merged", start_time=21, end_time=25)
+    merge_files(segment_paths, dest_file=f"{file}.merged", start_time=21, end_time=25)

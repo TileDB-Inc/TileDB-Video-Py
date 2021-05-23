@@ -10,7 +10,7 @@ from split_merge import (
     TimeOffset,
     get_stream_size_duration,
     merge_files,
-    split_stream,
+    split_file,
 )
 
 
@@ -19,7 +19,7 @@ def from_file(
     file: File,
     *,
     stream_index: int = 0,
-    format: str = "mp4",
+    fmt: str = "mp4",
     split_interval: timedelta = timedelta(seconds=1),
 ) -> None:
     """Create TileDB array at given URI from a video file stream.
@@ -27,7 +27,7 @@ def from_file(
     :param uri: URI for new TileDB array
     :param file: Input video file
     :param stream_index: Index of the stream channel to ingest
-    :param format: Format of the split video segments
+    :param fmt: Format of the split video segments
     :param split_interval: Target duration of each split video segment
     """
     # create schema
@@ -52,18 +52,14 @@ def from_file(
 
     with tiledb.open(uri, mode="w") as a:
         # segment input file and write each segment to tiledb
-        for segment in split_stream(file, split_size, stream_index, format):
-            a[segment.start_time, segment.end_time] = {
-                "data": segment.data,
-                "size": len(segment.data),
-                "duration": segment.end_time - segment.start_time,
-            }
+        for start, end, data in split_file(file, split_size, stream_index, fmt):
+            a[start, end] = {"data": data, "size": len(data), "duration": end - start}
 
 
 def to_file(
     uri: str,
     file: File,
-    format: str = "mp4",
+    fmt: str = "mp4",
     start_time: TimeOffset = None,
     end_time: TimeOffset = None,
 ) -> None:
@@ -71,7 +67,7 @@ def to_file(
 
     :param uri: URI for new TileDB array
     :param file: Output video file
-    :param format: Format of the output file
+    :param fmt: Format of the output file
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
     """
@@ -80,7 +76,7 @@ def to_file(
         merge_files(
             src_files=src_files,
             dest_file=file,
-            format=format,
+            fmt=fmt,
             start_time={src_files[0]: start_time},
             end_time={src_files[-1]: end_time},
         )
