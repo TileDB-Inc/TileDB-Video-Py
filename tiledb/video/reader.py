@@ -20,9 +20,9 @@ def to_file(
 ) -> None:
     """Read a video from a TileDB array into a file.
 
-    :param uri: URI for new TileDB array
-    :param file: Output video file
-    :param format: Format of the output file
+    :param uri: URI of TileDB array to read from
+    :param file: Output video file path or file-like object
+    :param format: Format of the output video file
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
     """
@@ -48,6 +48,19 @@ def iter_images(
     dst_colorspace: Union[Colorspace, str, None] = None,
     interpolation: Union[Interpolation, str, None] = None,
 ) -> Iterator[Image]:
+    """
+    Return an iterator of RGB images represented as `PIL.Image` instances from a TileDB array.
+
+    :param uri: URI of TileDB array to read from
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
+    :param width: New width, or None for the same width
+    :param height: New height, or None for the same height
+    :param src_colorspace: Current colorspace, or None for Colorspace.DEFAULT
+    :param dst_colorspace: Desired colorspace, or None for Colorspace.DEFAULT
+    :param interpolation: The interpolation method to use, or None for Interpolation.BILINEAR
+    :return: Iterator of `PIL.Image` instances
+    """
     for packet in iter_packets_from_tiledb(uri, start_time, end_time):
         for frame in packet.decode():
             yield frame.to_image(
@@ -71,6 +84,19 @@ def iter_ndarrays(
     dst_colorspace: Union[Colorspace, str, None] = None,
     interpolation: Union[Interpolation, str, None] = None,
 ) -> Iterator[Image]:
+    """Return an iterator of images represented as Numpy arrays from a TileDB array.
+
+    :param uri: URI of TileDB array to read from
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
+    :param format: New format, or None for the same format
+    :param width: New width, or None for the same width
+    :param height: New height, or None for the same height
+    :param src_colorspace: Current colorspace, or None for Colorspace.DEFAULT
+    :param dst_colorspace: Desired colorspace, or None for Colorspace.DEFAULT
+    :param interpolation: The interpolation method to use, or None for Interpolation.BILINEAR
+    :return: Iterator of `np.ndarray` instances
+    """
     for packet in iter_packets_from_tiledb(uri, start_time, end_time):
         for frame in packet.decode():
             yield frame.to_ndarray(
@@ -200,6 +226,14 @@ def iter_packets_from_file(
 def iter_packets_from_tiledb(
     uri: str, start_time: TimeOffset = None, end_time: TimeOffset = None
 ) -> Iterator[av.Packet]:
+    """
+    Return an iterator of encoded data packets from a TileDB array.
+
+    :param uri: URI of TileDB array to read from
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
+    :return: Iterator of `av.Packet` instances
+    """
     src_files = list(iter_segment_files(uri, start_time, end_time))
     if src_files:
         # filter packets by start_time from the first file and by end_time from the last

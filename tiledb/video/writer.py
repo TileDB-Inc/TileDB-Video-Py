@@ -18,11 +18,11 @@ def from_file(
     format: str = "mp4",
     split_duration: float = 1.0,
 ) -> None:
-    """Create TileDB array at given URI from a video file stream.
+    """Create a TileDB array at given URI from a video file stream.
 
     :param uri: URI for new TileDB array
-    :param file: Input video file
-    :param stream_index: Index of the stream channel to ingest
+    :param file: Input video file path or file-like object
+    :param stream_index: Index of the stream channel to write
     :param format: Format of the split video segments
     :param split_duration: Target duration of each split video segment (in seconds)
     """
