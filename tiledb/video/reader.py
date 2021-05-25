@@ -168,10 +168,10 @@ def merge_segment_files(
     """
     iter_src_files = iter(src_files)
     with av.open(dest_file, "w", format=format) as out_container:
-        first_src_file = next(iter_src_files)
-        with resetting_offset(first_src_file), av.open(first_src_file) as in_container:
-            in_stream = in_container.streams[stream_index]
-            out_stream = out_container.add_stream(template=in_stream)
+        with resetting_offset(next(iter_src_files)) as first_src_file:
+            with av.open(first_src_file) as in_container:
+                in_stream = in_container.streams[stream_index]
+                out_stream = out_container.add_stream(template=in_stream)
 
         def get_time(fto: FileTimeOffset, f: File) -> TimeOffset:
             return fto.get(f) if isinstance(fto, Mapping) else fto

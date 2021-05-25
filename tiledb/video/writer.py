@@ -106,14 +106,13 @@ def split_file(
     with av.open(file) as in_container:
         in_stream = in_container.streams[stream_index]
         for chunk in chunk_packets(in_container.demux(in_stream), size):
-            output_file = BytesIO()
-            with av.open(output_file, "w", format=format) as out_container:
-                out_stream = out_container.add_stream(template=in_stream)
-                for packet in chunk:
-                    # assign the packet to the new stream
-                    packet.stream = out_stream
-                    out_container.mux_one(packet)
-            output_file.seek(0)
+            with resetting_offset(BytesIO()) as output_file:
+                with av.open(output_file, "w", format=format) as out_container:
+                    out_stream = out_container.add_stream(template=in_stream)
+                    for packet in chunk:
+                        # assign the packet to the new stream
+                        packet.stream = out_stream
+                        out_container.mux_one(packet)
             time_breaks = [float(p.pts * p.time_base) for p in chunk]
             yield min(time_breaks), max(time_breaks), output_file.read()
 
