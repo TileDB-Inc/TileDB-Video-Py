@@ -1,13 +1,25 @@
+import pickle
 from io import BytesIO
 from itertools import chain, takewhile
-from typing import Iterable, Iterator, Mapping, Optional, Union
+from typing import Any, Iterable, Iterator, Mapping, Optional, Union, cast
 
 import av
-import tiledb
 from av.video.reformatter import Colorspace, Interpolation
 from PIL.Image import Image
 
+import tiledb
+
 from .utils import File, FileTimeOffset, TimeOffset, resetting_offset
+
+
+def get_codec_context(uri: str) -> Mapping[str, Any]:
+    """Get a subset of the video stream codec context.
+
+    :param uri: URI of TileDB array to read from
+    :return: Mapping of codec context properties
+    """
+    with tiledb.open(uri) as a:
+        return cast(Mapping[str, Any], pickle.loads(a.meta["codec_context"]))
 
 
 def to_file(

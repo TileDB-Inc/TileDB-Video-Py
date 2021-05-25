@@ -1,10 +1,12 @@
+import pickle
 from io import BytesIO
 from itertools import groupby
 from operator import attrgetter
-from typing import Iterable, Iterator, List, Tuple
+from typing import Any, Iterable, Iterator, List, Mapping, Tuple
 
 import av
 import numpy as np
+
 import tiledb
 
 from .utils import File, resetting_offset
@@ -44,10 +46,12 @@ def from_file(
     size, duration = get_stream_size_duration(file, stream_index)
     split_size = int(size / duration * split_duration)
 
-    # split file and write each segment to tiledb
     with tiledb.open(uri, mode="w") as a:
+        # split file and write each segment to tiledb
         for start, end, data in split_file(file, split_size, stream_index, format):
             a[start, end] = {"data": data, "size": len(data)}
+        # write codec context as metadata
+        a.meta["codec_context"] = pickle.dumps(get_codec_context(file, stream_index))
 
 
 def get_stream_size_duration(file: File, stream_index: int = 0) -> Tuple[int, float]:
@@ -63,6 +67,25 @@ def get_stream_size_duration(file: File, stream_index: int = 0) -> Tuple[int, fl
             # container.duration is in microsec
             duration = container.duration / 1e6
             return size, duration
+
+
+def get_codec_context(file: File, stream_index: int = 0) -> Mapping[str, Any]:
+    """Get a subset of a video stream codec context.
+
+    :param file: Input video file path or file-like object
+    :param stream_index: Index of the stream channel to inspect
+    :return: Mapping of codec context properties
+    """
+    with av.open(file) as container:
+        context = container.streams[stream_index].codec_context
+        return {
+            "codec": context.codec.name,
+            "fps": context.framerate,
+            "bitrate": context.bit_rate,
+            "pixel_format": context.pix_fmt,
+            "height": context.height,
+            "width": context.width,
+        }
 
 
 def split_file(

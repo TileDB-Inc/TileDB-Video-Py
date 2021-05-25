@@ -16,8 +16,8 @@ pip install git+https://github.com/TileDB-Inc/TileDB-Video-Py
 
 ## Usage
 
-To see `tiledb.video` in action, you may review (or run locally) the included
-[Jupyter notebook](https://github.com/TileDB-Inc/TileDB-Video-Py/examples/tiledb-video.ipynb).
+To see `tiledb.video` in action, you may view or run locally the
+[Jupyter notebook demo](https://github.com/TileDB-Inc/TileDB-Video-Py/examples/tiledb-video.ipynb).
 
 ## API
 
@@ -38,7 +38,13 @@ The API consists of the following functions under the `tiledb.video` namespace p
 
 ### Reading from TileDB
 
--  `to_file(uri, file, *, format="mp4", start_time=None, end_time=None)`
+- `get_codec_context(uri)`
+
+    Get a subset of the video stream codec context.
+
+    - `uri`: URI of TileDB array to read from
+
+- `to_file(uri, file, *, format="mp4", start_time=None, end_time=None)`
 
     Read a video from a TileDB array into a file.
 
