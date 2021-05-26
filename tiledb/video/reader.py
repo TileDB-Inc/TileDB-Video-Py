@@ -1,6 +1,6 @@
 import pickle
 from io import BytesIO
-from itertools import chain, takewhile
+from itertools import takewhile
 from typing import Any, Iterable, Iterator, Mapping, Optional, Union, cast
 
 import av
@@ -26,9 +26,9 @@ def to_file(
     uri: str,
     file: File,
     *,
-    format: str = "mp4",
     start_time: TimeOffset = None,
     end_time: TimeOffset = None,
+    format: str = "mp4",
 ) -> None:
     """Read a video from a TileDB array into a file.
 
@@ -38,13 +38,8 @@ def to_file(
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
     """
-    merge_segment_files(
-        iter_segment_files(uri, start_time, end_time),
-        dest_file=file,
-        format=format,
-        start_time=start_time,
-        end_time=end_time,
-    )
+    segment_files = iter_segment_files(uri, start_time, end_time)
+    merge_segment_files(segment_files, file, start_time, end_time, format)
 
 
 def iter_images(
@@ -71,7 +66,8 @@ def iter_images(
     :param interpolation: The interpolation method to use, or None for Interpolation.BILINEAR
     :return: Iterator of `PIL.Image` instances
     """
-    for packet in iter_packets_from_tiledb(uri, start_time, end_time):
+    segment_files = iter_segment_files(uri, start_time, end_time)
+    for packet in iter_packets_from_files(segment_files, start_time, end_time):
         for frame in packet.decode():
             yield frame.to_image(
                 width=width,
@@ -107,7 +103,8 @@ def iter_ndarrays(
     :param interpolation: The interpolation method to use, or None for Interpolation.BILINEAR
     :return: Iterator of `np.ndarray` instances
     """
-    for packet in iter_packets_from_tiledb(uri, start_time, end_time):
+    segment_files = iter_segment_files(uri, start_time, end_time)
+    for packet in iter_packets_from_files(segment_files, start_time, end_time):
         for frame in packet.decode():
             yield frame.to_ndarray(
                 format=format,
@@ -148,20 +145,20 @@ def iter_segment_files(
 def merge_segment_files(
     src_files: Iterable[File],
     dest_file: File,
-    stream_index: int = 0,
-    format: str = "mp4",
     start_time: TimeOffset = None,
     end_time: TimeOffset = None,
+    format: str = "mp4",
+    stream_index: int = 0,
 ) -> None:
     """
     Merge a sequence of video files split by `split_file`.
 
     :param src_files: File paths or file-like objects to merge
     :param dest_file: File path or file-like object to write the `src_files`
-    :param stream_index: Index of the stream channel to read
+    :param start_time: Time offset of the first packet of the first src_file (in seconds)
+    :param end_time: Time offset of the last packet of the last src_file (in seconds)
     :param format: Format of the merged file
-    :param start_time: Time offset of the first src_file (in seconds)
-    :param end_time: Time offset of the last src_file (in seconds)
+    :param stream_index: Index of the stream channel to read
     """
     iter_src_files = PeekableIterator(src_files)
     if not iter_src_files:
@@ -175,17 +172,8 @@ def merge_segment_files(
                 out_stream = out_container.add_stream(template=in_stream)
 
         iter_packets = PeekableIterator(
-            chain.from_iterable(
-                iter_packets_from_file(
-                    src_file,
-                    stream_index,
-                    start_time=start_time if i == 0 else None,
-                    end_time=end_time if not iter_src_files else None,
-                )
-                for i, src_file in enumerate(iter_src_files)
-            )
+            iter_packets_from_files(iter_src_files, start_time, end_time, stream_index)
         )
-
         try:
             first_dts = iter_packets.peek().dts
         except StopIteration:
@@ -198,18 +186,43 @@ def merge_segment_files(
             out_container.mux_one(packet)
 
 
-def iter_packets_from_file(
-    file: File,
-    stream_index: int = 0,
+def iter_packets_from_files(
+    files: Iterable[File],
     start_time: TimeOffset = None,
     end_time: TimeOffset = None,
+    stream_index: int = 0,
+) -> Iterator[av.Packet]:
+    """Iterate over packets of zero or more video file streams.
+
+    :param files: Video files to read
+    :param start_time: Time offset of the first packet of the first file (in seconds)
+    :param end_time: Time offset of the last packet of the last file (in seconds)
+    :param stream_index: Index of the stream channel to read
+    :return: Iterator of packets
+    """
+    if not isinstance(files, PeekableIterator):
+        files = PeekableIterator(files)
+    for i, src_file in enumerate(files):
+        yield from iter_packets_from_file(
+            src_file,
+            start_time if i == 0 else None,
+            end_time if not files else None,
+            stream_index,
+        )
+
+
+def iter_packets_from_file(
+    file: File,
+    start_time: TimeOffset = None,
+    end_time: TimeOffset = None,
+    stream_index: int = 0,
 ) -> Iterator[av.Packet]:
     """Iterate over packets of a video file stream.
 
     :param file: Video file to read
-    :param stream_index: Index of the stream channel to read
     :param start_time: Time offset of the first packet (in seconds)
     :param end_time: Time offset of the last packet (in seconds)
+    :param stream_index: Index of the stream channel to read
     :return: Iterator of packets
     """
     with av.open(file) as container:
@@ -233,25 +246,3 @@ def iter_packets_from_file(
             packets = takewhile(lambda p: p.dts <= end_dts, packets)
 
         yield from packets
-
-
-def iter_packets_from_tiledb(
-    uri: str, start_time: TimeOffset = None, end_time: TimeOffset = None
-) -> Iterator[av.Packet]:
-    """
-    Return an iterator of encoded data packets from a TileDB array.
-
-    :param uri: URI of TileDB array to read from
-    :param start_time: Start time offset (in seconds)
-    :param end_time: End time offset (in seconds)
-    :return: Iterator of `av.Packet` instances
-    """
-    iter_src_files = PeekableIterator(iter_segment_files(uri, start_time, end_time))
-    # filter packets by start_time from the first file and by end_time from the last
-    # yield all packets from the intermediate files
-    for i, src_file in enumerate(iter_src_files):
-        yield from iter_packets_from_file(
-            src_file,
-            start_time=start_time if i == 0 else None,
-            end_time=end_time if not iter_src_files else None,
-        )
