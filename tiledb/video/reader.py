@@ -9,7 +9,7 @@ from PIL.Image import Image
 
 import tiledb
 
-from .utils import File, FileTimeOffset, TimeOffset, resetting_offset
+from .utils import File, FileTimeOffset, PeekableIterator, TimeOffset, resetting_offset
 
 
 def get_codec_context(uri: str) -> Mapping[str, Any]:
@@ -246,15 +246,12 @@ def iter_packets_from_tiledb(
     :param end_time: End time offset (in seconds)
     :return: Iterator of `av.Packet` instances
     """
-    src_files = list(iter_segment_files(uri, start_time, end_time))
-    if src_files:
-        # filter packets by start_time from the first file and by end_time from the last
-        # yield all packets from the intermediate files
-        start_time_mapping = {src_files[0]: start_time}
-        end_time_mapping = {src_files[-1]: end_time}
-        for src_file in src_files:
-            yield from iter_packets_from_file(
-                src_file,
-                start_time=start_time_mapping.get(src_file),
-                end_time=end_time_mapping.get(src_file),
-            )
+    iter_src_files = PeekableIterator(iter_segment_files(uri, start_time, end_time))
+    # filter packets by start_time from the first file and by end_time from the last
+    # yield all packets from the intermediate files
+    for i, src_file in enumerate(iter_src_files):
+        yield from iter_packets_from_file(
+            src_file,
+            start_time=start_time if i == 0 else None,
+            end_time=end_time if not iter_src_files else None,
+        )
