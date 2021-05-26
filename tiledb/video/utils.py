@@ -6,7 +6,6 @@ from typing import (
     Iterable,
     Iterator,
     List,
-    Mapping,
     Optional,
     TypeVar,
     Union,
@@ -14,7 +13,6 @@ from typing import (
 
 File = Union[str, BinaryIO]
 TimeOffset = Optional[float]
-FileTimeOffset = Union[TimeOffset, Mapping[File, TimeOffset]]
 
 FT = TypeVar("FT", bound=File)
 

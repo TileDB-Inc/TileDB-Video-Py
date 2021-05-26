@@ -9,7 +9,7 @@ from PIL.Image import Image
 
 import tiledb
 
-from .utils import File, FileTimeOffset, PeekableIterator, TimeOffset, resetting_offset
+from .utils import File, PeekableIterator, TimeOffset, resetting_offset
 
 
 def get_codec_context(uri: str) -> Mapping[str, Any]:
@@ -38,15 +38,13 @@ def to_file(
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
     """
-    src_files = list(iter_segment_files(uri, start_time, end_time))
-    if src_files:
-        merge_segment_files(
-            src_files,
-            dest_file=file,
-            format=format,
-            start_time={src_files[0]: start_time},
-            end_time={src_files[-1]: end_time},
-        )
+    merge_segment_files(
+        iter_segment_files(uri, start_time, end_time),
+        dest_file=file,
+        format=format,
+        start_time=start_time,
+        end_time=end_time,
+    )
 
 
 def iter_images(
@@ -135,6 +133,7 @@ def iter_segment_files(
     #
     # Overlapping segments: B, C, D, E
 
+    :param uri: URI of TileDB array to read from
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
     :return: Iterator of BytesIO buffers
@@ -151,8 +150,8 @@ def merge_segment_files(
     dest_file: File,
     stream_index: int = 0,
     format: str = "mp4",
-    start_time: FileTimeOffset = None,
-    end_time: FileTimeOffset = None,
+    start_time: TimeOffset = None,
+    end_time: TimeOffset = None,
 ) -> None:
     """
     Merge a sequence of video files split by `split_file`.
@@ -161,36 +160,37 @@ def merge_segment_files(
     :param dest_file: File path or file-like object to write the `src_files`
     :param stream_index: Index of the stream channel to read
     :param format: Format of the merged file
-    :param start_time: Start time offset (in seconds). It can be a mapping with files
-        as keys and offsets as values, or a single offset for all files
-    :param end_time: End time offset (in seconds). It can be a mapping with files
-        as keys and offsets as values, or a single offset for all files
+    :param start_time: Time offset of the first src_file (in seconds)
+    :param end_time: Time offset of the last src_file (in seconds)
     """
-    iter_src_files = iter(src_files)
+    iter_src_files = PeekableIterator(src_files)
+    if not iter_src_files:
+        return
+
     with av.open(dest_file, "w", format=format) as out_container:
-        with resetting_offset(next(iter_src_files)) as first_src_file:
+        # set the output stream with template taken from the first file stream
+        with resetting_offset(iter_src_files.peek()) as first_src_file:
             with av.open(first_src_file) as in_container:
                 in_stream = in_container.streams[stream_index]
                 out_stream = out_container.add_stream(template=in_stream)
 
-        def get_time(fto: FileTimeOffset, f: File) -> TimeOffset:
-            return fto.get(f) if isinstance(fto, Mapping) else fto
-
-        packets = chain.from_iterable(
-            iter_packets_from_file(
-                src_file,
-                stream_index,
-                get_time(start_time, src_file),
-                get_time(end_time, src_file),
+        iter_packets = PeekableIterator(
+            chain.from_iterable(
+                iter_packets_from_file(
+                    src_file,
+                    stream_index,
+                    start_time=start_time if i == 0 else None,
+                    end_time=end_time if not iter_src_files else None,
+                )
+                for i, src_file in enumerate(iter_src_files)
             )
-            for src_file in chain((first_src_file,), iter_src_files)
         )
+
         try:
-            first_packet = next(packets)
+            first_dts = iter_packets.peek().dts
         except StopIteration:
             return
-        first_dts = first_packet.dts
-        for packet in chain((first_packet,), packets):
+        for packet in iter_packets:
             # rewrite pts/dts of each packet so that first one in the file starts at zero
             packet.dts -= first_dts
             packet.pts -= first_dts
@@ -208,8 +208,8 @@ def iter_packets_from_file(
 
     :param file: Video file to read
     :param stream_index: Index of the stream channel to read
-    :param start_time: Time offset in seconds of the first frame
-    :param end_time: Time offset in seconds of the last frame
+    :param start_time: Time offset of the first packet (in seconds)
+    :param end_time: Time offset of the last packet (in seconds)
     :return: Iterator of packets
     """
     with av.open(file) as container:
