@@ -54,8 +54,8 @@ The API consists of the following functions under the `tiledb.video` namespace p
     - `start_time`: Start time offset (in seconds)
     - `end_time`: End time offset (in seconds)
 
-- `iter_images(uri, *, start_time=None, end_time=None, width=None, height=None,
-               src_colorspace=None, dst_colorspace=None, interpolation=None)`
+- `iter_images(uri, *, start_time=None, end_time=None, max_threads=1, width=None,
+               height=None, src_colorspace=None, dst_colorspace=None, interpolation=None)`
 
     Return an iterator of RGB images represented as
     [PIL.Image](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image)
@@ -64,14 +64,17 @@ The API consists of the following functions under the `tiledb.video` namespace p
     - `uri`: URI of TileDB array to read from
     - `start_time`: Start time offset (in seconds)
     - `end_time`: End time offset (in seconds)
+    - `max_threads`: Max number of threads to fetch segments concurrently, or 0 to fetch
+      all segments in a single call
 
     For the remaining optional parameters, please consult the documentation of the PyAV
     [VideoReformatter.reformat()](https://pyav.org/docs/develop/api/video.html#av.video.reformatter.VideoReformatter.reformat)
     method.
 
 
-- `iter_ndarrays(uri, *, start_time=None, end_time=None, format="rgb24", width=None,
-                 height=None, src_colorspace=None, dst_colorspace=None, interpolation=None)`
+- `iter_ndarrays(uri, *, start_time=None, end_time=None, max_threads=1, format="rgb24",
+                 width=None, height=None, src_colorspace=None, dst_colorspace=None,
+                 interpolation=None)`
 
     Return an iterator of images represented as
     [Numpy arrays](https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html)
@@ -80,6 +83,8 @@ The API consists of the following functions under the `tiledb.video` namespace p
     - `uri`: URI of TileDB array to read from
     - `start_time`: Start time offset (in seconds)
     - `end_time`: End time offset (in seconds)
+    - `max_threads`: Max number of threads to fetch segments concurrently, or 0 to fetch
+      all segments in a single call
 
     For the remaining optional parameters, please consult the documentation of the PyAV
     [VideoReformatter.reformat()](https://pyav.org/docs/develop/api/video.html#av.video.reformatter.VideoReformatter.reformat)

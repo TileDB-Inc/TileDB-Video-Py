@@ -84,6 +84,7 @@ def iter_images(
     *,
     start_time: TimeOffset = None,
     end_time: TimeOffset = None,
+    max_threads: int = 1,
     width: Optional[int] = None,
     height: Optional[int] = None,
     src_colorspace: Union[Colorspace, str, None] = None,
@@ -96,6 +97,8 @@ def iter_images(
     :param uri: URI of TileDB array to read from
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
+    :param max_threads: Max number of threads to fetch segments concurrently,
+        or 0 to fetch all segments in a single call.
     :param width: New width, or None for the same width
     :param height: New height, or None for the same height
     :param src_colorspace: Current colorspace, or None for Colorspace.DEFAULT
@@ -103,7 +106,7 @@ def iter_images(
     :param interpolation: The interpolation method to use, or None for Interpolation.BILINEAR
     :return: Iterator of `PIL.Image` instances
     """
-    segment_files = iter_segments(uri, start_time, end_time)
+    segment_files = iter_segments(uri, start_time, end_time, max_threads)
     for packet in iter_packets_from_files(segment_files, start_time, end_time):
         for frame in packet.decode():
             yield frame.to_image(
@@ -120,6 +123,7 @@ def iter_ndarrays(
     *,
     start_time: TimeOffset = None,
     end_time: TimeOffset = None,
+    max_threads: int = 1,
     format: str = "rgb24",
     width: Optional[int] = None,
     height: Optional[int] = None,
@@ -132,6 +136,8 @@ def iter_ndarrays(
     :param uri: URI of TileDB array to read from
     :param start_time: Start time offset (in seconds)
     :param end_time: End time offset (in seconds)
+    :param max_threads: Max number of threads to fetch segments concurrently,
+        or 0 to fetch all segments in a single call.
     :param format: New format, or None for the same format
     :param width: New width, or None for the same width
     :param height: New height, or None for the same height
@@ -140,7 +146,7 @@ def iter_ndarrays(
     :param interpolation: The interpolation method to use, or None for Interpolation.BILINEAR
     :return: Iterator of `np.ndarray` instances
     """
-    segment_files = iter_segments(uri, start_time, end_time)
+    segment_files = iter_segments(uri, start_time, end_time, max_threads)
     for packet in iter_packets_from_files(segment_files, start_time, end_time):
         for frame in packet.decode():
             yield frame.to_ndarray(
