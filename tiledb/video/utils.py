@@ -20,8 +20,6 @@ import av
 from .peekable import PeekableIterator
 
 File = Union[str, BinaryIO]
-TimeOffset = Optional[float]
-
 FT = TypeVar("FT", bound=File)
 
 
@@ -75,8 +73,8 @@ def get_codec_context(file: File, stream_index: int = 0) -> Mapping[str, Any]:
 def merge_files(
     src_files: Iterable[File],
     dest_file: File,
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     format: str = "mp4",
     stream_index: int = 0,
 ) -> None:
@@ -118,8 +116,8 @@ def merge_files(
 
 def iter_packets_from_files(
     files: Iterable[File],
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     stream_index: int = 0,
 ) -> Iterator[av.Packet]:
     """Iterate over packets of zero or more video file streams.
@@ -143,8 +141,8 @@ def iter_packets_from_files(
 
 def iter_packets_from_file(
     file: File,
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     stream_index: int = 0,
 ) -> Iterator[av.Packet]:
     """Iterate over packets of a video file stream.

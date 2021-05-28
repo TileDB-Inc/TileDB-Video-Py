@@ -10,7 +10,7 @@ from PIL.Image import Image
 import tiledb
 
 from .iter_segments import iter_segments
-from .utils import File, TimeOffset
+from .utils import File
 from .utils import get_codec_context as get_codec_context_from_file
 from .utils import get_size_duration, iter_packets_from_files, merge_files, split_file
 
@@ -63,8 +63,8 @@ def to_file(
     uri: str,
     file: File,
     *,
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     format: str = "mp4",
 ) -> None:
     """Read a video from a TileDB array into a file.
@@ -82,8 +82,8 @@ def to_file(
 def iter_images(
     uri: str,
     *,
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     max_threads: int = 1,
     width: Optional[int] = None,
     height: Optional[int] = None,
@@ -121,8 +121,8 @@ def iter_images(
 def iter_ndarrays(
     uri: str,
     *,
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     max_threads: int = 1,
     format: str = "rgb24",
     width: Optional[int] = None,

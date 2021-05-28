@@ -1,15 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-from typing import Iterator
+from typing import Iterator, Optional
 
 import tiledb
-from tiledb.video.utils import TimeOffset
 
 
 def iter_segments(
     uri: str,
-    start_time: TimeOffset = None,
-    end_time: TimeOffset = None,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     max_threads: int = 0,
 ) -> Iterator[BytesIO]:
     """Fetch the minimum sequence of segment files that cover the given time range.
