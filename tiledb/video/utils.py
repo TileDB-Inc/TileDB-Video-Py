@@ -159,6 +159,24 @@ def iter_frames_from_files(
         yield from packet.decode()
 
 
+def iter_frames_from_file(
+    file: File,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
+    stream_index: int = 0,
+) -> Iterator[av.frame.Frame]:
+    """Iterate over frames of a video file stream.
+
+    :param file: Video file to read
+    :param start_time: Time offset of the first packet (in seconds)
+    :param end_time: Time offset of the last packet (in seconds)
+    :param stream_index: Index of the stream channel to read
+    :return: Iterator of frames
+    """
+    for packet in iter_packets_from_file(file, start_time, end_time, stream_index):
+        yield from packet.decode()
+
+
 def iter_packets_from_files(
     files: Iterable[File],
     start_time: Optional[float] = None,
