@@ -1,3 +1,4 @@
+import os
 from contextlib import contextmanager
 from io import BytesIO
 from itertools import groupby, takewhile
@@ -88,19 +89,20 @@ def merge_files(
     :param format: Format of the merged file
     :param stream_index: Index of the stream channel to read
     """
-    iter_src_files = PeekableIterator(src_files)
-    if not iter_src_files:
+    if not isinstance(src_files, PeekableIterator):
+        src_files = PeekableIterator(src_files)
+    if not src_files:
         return
 
-    with av.open(dest_file, "w", format=format) as out_container:
+    with av.open(dest_file, mode="w", format=format) as out_container:
         # set the output stream with template taken from the first file stream
-        with resetting_offset(iter_src_files.peek()) as first_src_file:
+        with resetting_offset(src_files.peek()) as first_src_file:
             with av.open(first_src_file) as in_container:
                 in_stream = in_container.streams[stream_index]
                 out_stream = out_container.add_stream(template=in_stream)
 
         iter_packets = PeekableIterator(
-            iter_packets_from_files(iter_src_files, start_time, end_time, stream_index)
+            iter_packets_from_files(src_files, start_time, end_time, stream_index)
         )
         try:
             first_dts = iter_packets.peek().dts
@@ -112,6 +114,49 @@ def merge_files(
             packet.pts -= first_dts
             packet.stream = out_stream
             out_container.mux_one(packet)
+
+
+def iter_frames_from_files(
+    files: Iterable[File],
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
+    stream_index: int = 0,
+) -> Iterator[av.frame.Frame]:
+    """Iterate over frames of zero or more video file streams.
+
+    :param files: Video files to read
+    :param start_time: Time offset of the first packet of the first file (in seconds)
+    :param end_time: Time offset of the last packet of the last file (in seconds)
+    :param stream_index: Index of the stream channel to read
+    :return: Iterator of frames
+    """
+    # The obvious solution would be just:
+    #
+    #   for packet in iter_packets_from_files(files, start_time, end_time, stream_index):
+    #       yield from packet.decode()
+    #
+    # Unfortunately this loses the first few frame(s) of each file, apparently because
+    # they belong to different streams. What we need to do instead is to create a new
+    # stream, reassign all packets of all files to it and then decode them.
+
+    if not isinstance(files, PeekableIterator):
+        files = PeekableIterator(files)
+    if not files:
+        return
+
+    # set the output stream with template taken from the first file stream
+    with resetting_offset(files.peek()) as first_src_file:
+        with av.open(first_src_file) as in_container:
+            in_stream = in_container.streams[stream_index]
+            # we need a container in order to create a stream but apparently the
+            # container file is not really needed if all we do is reassign packets to
+            # the stream and decode them, so just set the file to devnull
+            with av.open(os.devnull, mode="w", format="mp4") as out_container:
+                out_stream = out_container.add_stream(template=in_stream)
+
+    for packet in iter_packets_from_files(files, start_time, end_time, stream_index):
+        packet.stream = out_stream
+        yield from packet.decode()
 
 
 def iter_packets_from_files(
@@ -165,7 +210,7 @@ def iter_packets_from_file(
             container.seek(offset=int(start_time / stream.time_base), stream=stream)
 
         packets: Iterator[av.Packet] = (
-            p for p in container.demux() if p.dts is not None
+            p for p in container.demux(stream) if p.dts is not None
         )
 
         if end_time is not None:
@@ -195,7 +240,7 @@ def split_file(
         in_stream = in_container.streams[stream_index]
         for chunk in chunk_packets(in_container.demux(in_stream), size):
             with resetting_offset(BytesIO()) as output_file:
-                with av.open(output_file, "w", format=format) as out_container:
+                with av.open(output_file, mode="w", format=format) as out_container:
                     out_stream = out_container.add_stream(template=in_stream)
                     for packet in chunk:
                         # assign the packet to the new stream

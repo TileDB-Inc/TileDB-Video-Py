@@ -12,7 +12,7 @@ import tiledb
 from .iter_segments import iter_segments
 from .utils import File
 from .utils import get_codec_context as get_codec_context_from_file
-from .utils import get_size_duration, iter_packets_from_files, merge_files, split_file
+from .utils import get_size_duration, iter_frames_from_files, merge_files, split_file
 
 
 def from_file(
@@ -107,15 +107,14 @@ def iter_images(
     :return: Iterator of `PIL.Image` instances
     """
     segment_files = iter_segments(uri, start_time, end_time, max_threads)
-    for packet in iter_packets_from_files(segment_files, start_time, end_time):
-        for frame in packet.decode():
-            yield frame.to_image(
-                width=width,
-                height=height,
-                src_colorspace=src_colorspace,
-                dst_colorspace=dst_colorspace,
-                interpolation=interpolation,
-            )
+    for frame in iter_frames_from_files(segment_files, start_time, end_time):
+        yield frame.to_image(
+            width=width,
+            height=height,
+            src_colorspace=src_colorspace,
+            dst_colorspace=dst_colorspace,
+            interpolation=interpolation,
+        )
 
 
 def iter_ndarrays(
@@ -147,16 +146,15 @@ def iter_ndarrays(
     :return: Iterator of `np.ndarray` instances
     """
     segment_files = iter_segments(uri, start_time, end_time, max_threads)
-    for packet in iter_packets_from_files(segment_files, start_time, end_time):
-        for frame in packet.decode():
-            yield frame.to_ndarray(
-                format=format,
-                width=width,
-                height=height,
-                src_colorspace=src_colorspace,
-                dst_colorspace=dst_colorspace,
-                interpolation=interpolation,
-            )
+    for frame in iter_frames_from_files(segment_files, start_time, end_time):
+        yield frame.to_ndarray(
+            format=format,
+            width=width,
+            height=height,
+            src_colorspace=src_colorspace,
+            dst_colorspace=dst_colorspace,
+            interpolation=interpolation,
+        )
 
 
 def get_codec_context(uri: str) -> Mapping[str, Any]:
