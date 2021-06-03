@@ -19,9 +19,18 @@ def tiledb_uri(tmp_path):
     return str(tmp_path / VIDEO_PATH.with_suffix(".tdb").name)
 
 
-def test_from_file(tiledb_uri):
+@pytest.mark.parametrize("split_duration", [1, 5, 10, 20])
+@pytest.mark.parametrize("start_time", [None, 7.1])
+@pytest.mark.parametrize("end_time", [None, 19.5])
+def test_from_file(tiledb_uri, split_duration, start_time, end_time):
     assert tiledb.object_type(tiledb_uri) is None
-    tv.from_file(tiledb_uri, str(VIDEO_PATH))
+    tv.from_file(
+        tiledb_uri,
+        str(VIDEO_PATH),
+        split_duration=split_duration,
+        start_time=start_time,
+        end_time=end_time,
+    )
     assert tiledb.object_type(tiledb_uri) == "array"
 
     # white-box testing
@@ -52,18 +61,21 @@ def test_from_file(tiledb_uri):
         }
 
 
-def test_to_file(tiledb_uri, tmp_path):
-    tv.from_file(tiledb_uri, str(VIDEO_PATH))
+@pytest.mark.parametrize("split_duration", [1, 5, 10, 20])
+@pytest.mark.parametrize("start_time", [None, 7.1])
+@pytest.mark.parametrize("end_time", [None, 19.5])
+def test_to_file(tiledb_uri, tmp_path, split_duration, start_time, end_time):
+    tv.from_file(tiledb_uri, str(VIDEO_PATH), split_duration=split_duration)
 
     # write to file and assert it is a valid MP4 file
     dest_file = str(tmp_path / VIDEO_PATH.name)
-    tv.to_file(tiledb_uri, dest_file)
+    tv.to_file(tiledb_uri, dest_file, start_time=start_time, end_time=end_time)
     file_type_info = subprocess.check_output(["file", dest_file]).decode()
     assert "ISO Media, MP4" in file_type_info and "IS0 14496" in file_type_info
 
     # write to in-memory buf and assert it has the same contents as the file
     dest_buf = io.BytesIO()
-    tv.to_file(tiledb_uri, dest_buf)
+    tv.to_file(tiledb_uri, dest_buf, start_time=start_time, end_time=end_time)
     with open(dest_file, "rb") as f:
         assert f.read() == dest_buf.getvalue()
 

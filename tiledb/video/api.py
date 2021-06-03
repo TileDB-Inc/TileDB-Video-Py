@@ -20,6 +20,8 @@ def from_file(
     file: File,
     *,
     split_duration: float = 1.0,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     format: str = "mp4",
     stream_index: int = 0,
 ) -> None:
@@ -28,6 +30,8 @@ def from_file(
     :param uri: URI for new TileDB array
     :param file: Input video file path or file-like object
     :param split_duration: Target duration of each split video segment (in seconds)
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
     :param format: Format of the split video segments
     :param stream_index: Index of the stream channel to write
     """
@@ -46,12 +50,14 @@ def from_file(
     tiledb.Array.create(uri, schema)
 
     # determine the average size per split_interval
-    size, duration = get_size_duration(file, stream_index)
+    size, duration = get_size_duration(file, start_time, end_time, stream_index)
     split_size = int(size / duration * split_duration)
 
     with tiledb.open(uri, mode="w") as a:
         # split file and write each segment to tiledb
-        for start, end, data in split_file(file, split_size, format, stream_index):
+        for start, end, data in split_file(
+            file, split_size, start_time, end_time, format, stream_index
+        ):
             a[start, end] = {"data": data, "size": len(data)}
         # write codec context as metadata
         a.meta["codec_context"] = pickle.dumps(

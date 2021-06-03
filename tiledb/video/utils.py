@@ -59,19 +59,26 @@ def copying_stream(
         yield out_container, out_stream
 
 
-def get_size_duration(file: File, stream_index: int = 0) -> Tuple[int, float]:
+def get_size_duration(
+    file: File,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
+    stream_index: int = 0,
+) -> Tuple[int, float]:
     """Get the size (in bytes) and duration (in seconds) of a video file stream.
 
     :param file: Video file to read
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
     :param stream_index: Index of the stream channel to read
     :return: (size, duration)
     """
-    with resetting_offset(file):
-        with av.open(file) as container:
-            size = sum(packet.buffer_size for packet in container.demux(stream_index))
-            # container.duration is in microsec
-            duration = container.duration / 1e6
-            return size, duration
+    with resetting_offset(file), av.open(file) as container:
+        packets = iter_packets_from_file(file, start_time, end_time, stream_index)
+        size = sum(packet.buffer_size for packet in packets)
+        # container.duration is in microsec
+        duration = container.duration / 1e6
+        return size, duration
 
 
 def get_codec_context(file: File, stream_index: int = 0) -> Mapping[str, Any]:
@@ -242,7 +249,7 @@ def iter_packets_from_file(
             container.seek(offset=int(start_time / stream.time_base), stream=stream)
 
         packets: Iterator[av.Packet] = (
-            p for p in container.demux(stream) if p.dts is not None
+            packet for packet in container.demux(stream) if packet.dts is not None
         )
 
         if end_time is not None:
@@ -255,21 +262,25 @@ def iter_packets_from_file(
 
 def split_file(
     file: File,
-    size: int,
+    split_size: int,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
     format: str = "mp4",
     stream_index: int = 0,
 ) -> Iterator[Tuple[float, float, bytes]]:
     """Split a video stream into smaller files.
 
     :param file: Video file to split
-    :param size: Minimum size in bytes of each split file (with the possible exception of
-        the last chunk)
+    :param split_size: Minimum size in bytes of each split file (with the possible
+        exception of the last chunk)
+    :param start_time: Start time offset (in seconds)
+    :param end_time: End time offset (in seconds)
     :param format: Format of the split files
     :param stream_index: Index of the stream channel to split
     :return: Iterator of (start_time, end_time, bytes) tuples for each split file
     """
-    packets = iter_packets_from_file(file, stream_index=stream_index)
-    for chunk in chunk_packets(packets, size):
+    packets = iter_packets_from_file(file, start_time, end_time, stream_index)
+    for chunk in chunk_packets(packets, split_size):
         with resetting_offset(BytesIO()) as dest_file:
             with copying_stream(file, dest_file, format, stream_index) as (c, s):
                 for packet in chunk:
@@ -297,7 +308,6 @@ def chunk_packets(packets: Iterable[av.Packet], size: int) -> Iterator[List[av.P
     for is_keyframe, group in groupby(packets, key=attrgetter("is_keyframe")):
         # add all the group packets into the current chunk
         for packet in group:
-            # skip the "flushing" packets that `demux` generates
             if packet.buffer_size:
                 chunk.append(packet)
                 chunk_bytes += packet.buffer_size
