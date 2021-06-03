@@ -37,6 +37,28 @@ def resetting_offset(file: FT) -> Iterator[FT]:
         yield file
 
 
+@contextmanager
+def copying_stream(
+    src_file: File,
+    dest_file: File,
+    format: str = "mp4",
+    stream_index: int = 0,
+) -> Iterator[Tuple[av.container.OutputContainer, av.stream.Stream]]:
+    """Context manager for adding a new stream from a source to a destination video file.
+
+    :param src_file: Input file path or file-like object to copy
+    :param dest_file: Output file path or file-like object
+    :param format: Format of the output container
+    :param stream_index: Index of the source stream channel to copy
+    :return: (dest_container, dest_stream) tuple
+    """
+    with av.open(dest_file, mode="w", format=format) as out_container:
+        with resetting_offset(src_file), av.open(src_file) as in_container:
+            in_stream = in_container.streams[stream_index]
+            out_stream = out_container.add_stream(template=in_stream)
+        yield out_container, out_stream
+
+
 def get_size_duration(file: File, stream_index: int = 0) -> Tuple[int, float]:
     """Get the size (in bytes) and duration (in seconds) of a video file stream.
 
@@ -94,26 +116,21 @@ def merge_files(
     if not src_files:
         return
 
-    with av.open(dest_file, mode="w", format=format) as out_container:
-        # set the output stream with template taken from the first file stream
-        with resetting_offset(src_files.peek()) as first_src_file:
-            with av.open(first_src_file) as in_container:
-                in_stream = in_container.streams[stream_index]
-                out_stream = out_container.add_stream(template=in_stream)
-
-        iter_packets = PeekableIterator(
+    # set the output stream based on the first file
+    with copying_stream(src_files.peek(), dest_file, format, stream_index) as (c, s):
+        packets = PeekableIterator(
             iter_packets_from_files(src_files, start_time, end_time, stream_index)
         )
         try:
-            first_dts = iter_packets.peek().dts
+            first_dts = packets.peek().dts
         except StopIteration:
             return
-        for packet in iter_packets:
+        for packet in packets:
             # rewrite pts/dts of each packet so that first one in the file starts at zero
             packet.dts -= first_dts
             packet.pts -= first_dts
-            packet.stream = out_stream
-            out_container.mux_one(packet)
+            packet.stream = s
+            c.mux_one(packet)
 
 
 def iter_frames_from_files(
@@ -144,19 +161,16 @@ def iter_frames_from_files(
     if not files:
         return
 
-    # set the output stream with template taken from the first file stream
-    with resetting_offset(files.peek()) as first_src_file:
-        with av.open(first_src_file) as in_container:
-            in_stream = in_container.streams[stream_index]
-            # we need a container in order to create a stream but apparently the
-            # container file is not really needed if all we do is reassign packets to
-            # the stream and decode them, so just set the file to devnull
-            with av.open(os.devnull, mode="w", format="mp4") as out_container:
-                out_stream = out_container.add_stream(template=in_stream)
-
-    for packet in iter_packets_from_files(files, start_time, end_time, stream_index):
-        packet.stream = out_stream
-        yield from packet.decode()
+    # set the output stream based on the first file
+    # we need a container in order to create a stream but apparently the
+    # container file is not really needed if all we do is reassign packets to
+    # the stream and decode them, so just set the file to devnull
+    with copying_stream(files.peek(), os.devnull, "mp4", stream_index) as (_, stream):
+        for packet in iter_packets_from_files(
+            files, start_time, end_time, stream_index
+        ):
+            packet.stream = stream
+            yield from packet.decode()
 
 
 def iter_frames_from_file(
@@ -254,18 +268,16 @@ def split_file(
     :param stream_index: Index of the stream channel to split
     :return: Iterator of (start_time, end_time, bytes) tuples for each split file
     """
-    with av.open(file) as in_container:
-        in_stream = in_container.streams[stream_index]
-        for chunk in chunk_packets(in_container.demux(in_stream), size):
-            with resetting_offset(BytesIO()) as output_file:
-                with av.open(output_file, mode="w", format=format) as out_container:
-                    out_stream = out_container.add_stream(template=in_stream)
-                    for packet in chunk:
-                        # assign the packet to the new stream
-                        packet.stream = out_stream
-                        out_container.mux_one(packet)
-            time_breaks = [float(p.pts * p.time_base) for p in chunk]
-            yield min(time_breaks), max(time_breaks), output_file.read()
+    packets = iter_packets_from_file(file, stream_index=stream_index)
+    for chunk in chunk_packets(packets, size):
+        with resetting_offset(BytesIO()) as dest_file:
+            with copying_stream(file, dest_file, format, stream_index) as (c, s):
+                for packet in chunk:
+                    packet.stream = s
+                    c.mux_one(packet)
+
+        time_breaks = [float(p.pts * p.time_base) for p in chunk]
+        yield min(time_breaks), max(time_breaks), dest_file.read()
 
 
 def chunk_packets(packets: Iterable[av.Packet], size: int) -> Iterator[List[av.Packet]]:
