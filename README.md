@@ -25,22 +25,24 @@ The API consists of the following functions under the `tiledb.video` namespace p
 
 ### Writing to TileDB
 
-- `from_file(uri, file, *, stream_index=0, format="mp4", split_duration=1)`
+- `from_file(uri, file, *, split_duration=1.0, start_time=None, end_time=None, format="mp4", stream_index=0)`
 
    Create a TileDB array at given URI from a video file stream.
 
     - `uri`: URI for new TileDB array
     - `file`: Input video file path or file-like object
-    - `stream_index`: Index of the stream channel to write
-    - `format`: Format of the split video segments
     - `split_duration`: Target duration of each split video segment (in seconds)
+    - `start_time`: Start time offset (in seconds)
+    - `end_time`: End time offset (in seconds)
+    - `format`: Format of the split video segments
+    - `stream_index`: Index of the stream channel to write
 
 
 ### Reading from TileDB
 
 - `get_codec_context(uri)`
 
-    Get a subset of the video stream codec context.
+    Get a subset of the video stream codec context attributes.
 
     - `uri`: URI of TileDB array to read from
 
@@ -50,9 +52,9 @@ The API consists of the following functions under the `tiledb.video` namespace p
 
     - `uri`: URI of TileDB array to read from
     - `file`: Output video file path or file-like object
-    - `format`: Format of the output video file
     - `start_time`: Start time offset (in seconds)
     - `end_time`: End time offset (in seconds)
+    - `format`: Format of the output video file
 
 - `iter_images(uri, *, start_time=None, end_time=None, max_threads=1, width=None,
                height=None, src_colorspace=None, dst_colorspace=None, interpolation=None)`
@@ -89,3 +91,35 @@ The API consists of the following functions under the `tiledb.video` namespace p
     For the remaining optional parameters, please consult the documentation of the PyAV
     [VideoReformatter.reformat()](https://pyav.org/docs/develop/api/video.html#av.video.reformatter.VideoReformatter.reformat)
     method.
+
+
+## CLI
+
+A simple `tiledb-video` command line interface is also provided for converting between
+video files and TileDB arrays:
+
+    $ tiledb-video --help
+    usage: tiledb-video [-h] [--from FROM] [--to TO] [-f FORMAT]
+                        [-l SEGMENT_LENGTH] [-s STREAM]
+                        input output
+
+    Convert a video file to or from TileDB
+
+    positional arguments:
+      input                 Input video file path or TileDB URI
+      output                Output video file path or TileDB URI
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --from FROM           Start time offset (in seconds) (default: None)
+      --to TO               End time offset (in seconds) (default: None)
+      -f FORMAT, --format FORMAT
+                            Format of the output video file (for conversion from
+                            tileDB) or the split video segments (for conversion to
+                            tileDB) (default: mp4)
+
+    Arguments for conversion to TileDB:
+      -l SEGMENT_LENGTH, --segment-length SEGMENT_LENGTH
+                            Split video segment length (in seconds) (default: 5.0)
+      -s STREAM, --stream STREAM
+                            Index of the stream channel to read (default: 0)
